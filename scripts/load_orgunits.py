@@ -1,4 +1,6 @@
-"""Load a DHIS2 org-unit GeoJSON export into the orgunits_raw staging table.
+"""Optional: load a DHIS2 org-unit GeoJSON into orgunits_raw (without QGIS).
+
+Prefer the QGIS path in qgis/IMPORT.md (GeoJSON → attribute table → PostGIS).
 
 Usage (from the FacilityGeo folder):
     .venv/bin/python scripts/load_orgunits.py "/path/to/Organisation units.geojson"

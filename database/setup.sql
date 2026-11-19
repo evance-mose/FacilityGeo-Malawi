@@ -3,6 +3,8 @@
 -- Run as the database owner (or a superuser; CREATE EXTENSION needs it once):
 --   psql -h localhost -d facilitygeo -f database/setup.sql
 --
+-- After this, load GeoJSON/CSV from QGIS into the empty staging tables
+-- (see qgis/IMPORT.md), then run database/after_qgis_import.sql.
 -- Roles and passwords are NOT created here (see README). The application role
 -- `geo` is granted data access at the end if it exists.
 

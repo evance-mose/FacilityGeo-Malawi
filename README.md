@@ -19,40 +19,66 @@ Database-driven map app for a Malawi health-information-system rollout: where fa
 
 ```mermaid
 flowchart LR
-    A[DHIS2 org units GeoJSON] -->|scripts/load_orgunits.py| P[(PostgreSQL + PostGIS)]
-    B[HDX district polygons] -->|scripts/load_districts.py| P
-    C[Rollout tracker .xlsx to CSV] -->|scripts/load_tracker.py + match/apply SQL| P
+    A[DHIS2 org units GeoJSON] -->|open in QGIS| Q[QGIS 3.44]
+    B[HDX district GeoJSON] -->|open in QGIS| Q
+    C[Rollout tracker CSV] -->|attribute table| Q
+    Q -->|export attribute tables| P[(PostgreSQL + PostGIS)]
     P --> F[FastAPI + psycopg2 pool]
-    F -->|GeoJSON / JSON| L[Leaflet page]
-    P <-->|local connection| Q[QGIS 3.44]
+    F -->|GeoJSON / JSON| L[Leaflet web app]
+    P <-->|same DB for map / checks| Q
 ```
+
+1. **QGIS** opens the GeoJSON / CSV and shows the **attribute table**.
+2. **Export** those fields into PostGIS tables (`orgunits_raw`, `districts_hdx`, `tracker_raw`).
+3. SQL builds `facilities` and matches the tracker.
+4. **FastAPI + Leaflet** read PostGIS and draw the map.
 
 - **Database:** local PostgreSQL 17 with PostGIS 3.7 and `pg_trgm`. No Docker.
 - **API:** FastAPI, parameterised queries only, inputs validated with pydantic. `/docs` has the interactive reference.
 - **Frontend:** one HTML file styled with Tailwind CSS (CDN) and the Wix Madefor Display font. Leaflet is vendored in `frontend/vendor/`. No build step.
-- **QGIS:** project `qgis/facilitygeo.qgz` with styled layers and cross-checks against PostGIS.
+- **QGIS:** import tool + project `qgis/facilitygeo.qgz` (styled layers and spatial cross-checks). Step-by-step: [`qgis/IMPORT.md`](qgis/IMPORT.md).
 
 ## Run locally
 
-Needs PostgreSQL with PostGIS and Python 3.10+.
+Needs PostgreSQL with PostGIS, QGIS 3.44, and Python 3.10+ (for the API only).
+
+**1. Database**
 
 ```bash
 createdb facilitygeo
 psql -d facilitygeo -c "CREATE ROLE geo LOGIN"
 psql -d facilitygeo -c "\password geo"
 psql -d facilitygeo -f database/setup.sql
-
 cp .env.example .env   # set DB_PASSWORD
+```
 
+**2. Load data in QGIS** (GeoJSON → attribute table → PostGIS)
+
+Follow [`qgis/IMPORT.md`](qgis/IMPORT.md). Short version:
+
+1. Connect QGIS to `facilitygeo`.
+2. Add the DHIS2 GeoJSON → import into `orgunits_raw` (map `parentName` → `parentname`).
+3. Add the HDX district GeoJSON → import into `districts_hdx` (map `district` → `name`).
+4. Add the tracker CSV → import into `tracker_raw`.
+5. Finish in SQL:
+
+```bash
+psql -d facilitygeo -f database/after_qgis_import.sql
+psql -d facilitygeo -f database/match_tracker.sql
+psql -d facilitygeo -f database/apply_tracker.sql
+psql -d facilitygeo -f database/checks.sql
+```
+
+**3. Web app**
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-# load GeoJSON / tracker with scripts/ and database/*.sql (see scripts/ headers)
-
 uvicorn app.main:app --reload   # http://127.0.0.1:8000  ·  /docs
 pytest -q
 ```
 
-QGIS: open `qgis/facilitygeo.qgz` and connect to the local database (no password stored in the project).
+Open `qgis/facilitygeo.qgz` to view the same PostGIS layers in QGIS.
 
 ## Notes
 
@@ -60,14 +86,15 @@ QGIS: open `qgis/facilitygeo.qgz` and connect to the local database (no password
 - **12 tracker rows** are unmatched and listed in the app summary (not guessed onto the map).
 - Officer / nearest-officer UI stays hidden until real officer locations are loaded.
 - API is for localhost only (no auth).
+- Python scripts under `scripts/` are an optional alternative to the QGIS import; they are not required.
 
 ## Layout
 
 ```
 app/        FastAPI
-database/   SQL setup, match, apply
-scripts/    loaders
+database/   setup, after_qgis_import, match, apply
+scripts/    optional loaders (alternative to QGIS)
 frontend/   map UI
-qgis/       project + styles
+qgis/       IMPORT.md, project, styles
 tests/      API tests
 ```

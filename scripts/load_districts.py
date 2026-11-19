@@ -1,4 +1,6 @@
-"""Load the HDX district polygons (GeoJSON, EPSG:4326) into districts_hdx.
+"""Optional: load HDX district polygons into districts_hdx (without QGIS).
+
+Prefer the QGIS path in qgis/IMPORT.md (GeoJSON → attribute table → PostGIS).
 
 Usage (from the FacilityGeo folder):
     .venv/bin/python scripts/load_districts.py data/mw_districts.geojson

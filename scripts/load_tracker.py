@@ -1,4 +1,6 @@
-"""Load a rollout tracker CSV into the tracker_raw staging table.
+"""Optional: load a rollout tracker CSV into tracker_raw (without QGIS).
+
+Prefer the QGIS path in qgis/IMPORT.md (CSV → attribute table → PostGIS).
 
 Usage (from the FacilityGeo folder):
     .venv/bin/python scripts/load_tracker.py data/tracker.csv
