@@ -15,6 +15,24 @@ Database-driven map app for a Malawi health-information-system rollout: where fa
 | % live per district | `GROUP BY` DHIS2 district name (joined to HDX by name). QGIS cross-checks counts with `ST_Contains` |
 | Tracker → facility match | DHIS2 code → exact name → core name → `pg_trgm` fuzzy → manual matches |
 
+## Architecture
+
+```mermaid
+flowchart LR
+    A[DHIS2 org units GeoJSON] -->|scripts/load_orgunits.py| P[(PostgreSQL + PostGIS)]
+    B[HDX district polygons] -->|scripts/load_districts.py| P
+    C[Rollout tracker .xlsx to CSV] -->|scripts/load_tracker.py + match/apply SQL| P
+    P --> F[FastAPI + psycopg2 pool]
+    F -->|GeoJSON / JSON| L[Leaflet page]
+    P <-->|local connection| Q[QGIS 3.44]
+    Q <-->|MCP, localhost only| M[AI assistant]
+```
+
+- **Database:** local PostgreSQL 17 with PostGIS 3.7 and `pg_trgm`. No Docker.
+- **API:** FastAPI, parameterised queries only, inputs validated with pydantic. `/docs` has the interactive reference.
+- **Frontend:** one HTML file styled with Tailwind CSS (CDN) and the Wix Madefor Display font. Leaflet is vendored in `frontend/vendor/`. No build step.
+- **QGIS:** project `qgis/facilitygeo.qgz` with styled layers and cross-checks against PostGIS.
+
 ## Run locally
 
 Needs PostgreSQL with PostGIS and Python 3.10+.
