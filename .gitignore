@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+.DS_Store
+# Real MoH / DHIS2 exports stay out of Git.
+data/
+# Screenshots and the video script are kept locally, not on GitHub.
+docs/

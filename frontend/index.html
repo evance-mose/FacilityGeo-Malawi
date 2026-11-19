@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FacilityGeo: rollout monitoring, Malawi</title>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<!-- Tailwind CSS v4 (browser build). Needs internet to load, like the map tiles. -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<!-- Wix Madefor Display, the font family used on paychangu.com. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Wix+Madefor+Display:wght@400;500;600;700;800&display=swap">
+<style type="text/tailwindcss">
+  @theme {
+    --font-sans: "Wix Madefor Display", ui-sans-serif, system-ui, sans-serif;
+  }
+  /* A few shadcn-style building blocks, written once and reused in the markup and in the JS-built popups. */
+  @layer components {
+    .card { @apply rounded-[4px] border border-zinc-200 bg-white p-4 shadow-sm; }
+    .card-title { @apply text-sm font-semibold tracking-tight text-zinc-950; }
+    .field-label { @apply mb-1.5 block text-xs font-medium text-zinc-500; }
+    .input { @apply h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus-visible:border-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-950/10 disabled:opacity-50; }
+    .btn { @apply inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md border border-zinc-900 bg-zinc-900 px-4 text-sm font-medium text-zinc-50 shadow-sm transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-950/30 disabled:pointer-events-none disabled:opacity-50; }
+    .btn-outline { @apply border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-100; }
+    .btn-sm { @apply h-8 px-3 text-xs; }
+    .switch { @apply relative inline-block h-5 w-9 shrink-0 rounded-full bg-zinc-200 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-transform after:content-[''] peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 peer-focus-visible:ring-2 peer-focus-visible:ring-zinc-950/30; }
+    .badge { @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold text-white; }
+  }
+</style>
+<style>
+  /* Leaflet bits Tailwind cannot reach. */
+  .leaflet-container { font-family: inherit; }
+  .leaflet-container.crosshair { cursor: crosshair; }
+  .leaflet-popup-content-wrapper { border-radius: 4px; padding: 0; box-shadow: 0 4px 16px rgba(24,24,27,.18); }
+  .leaflet-popup-content { margin: 14px 16px; font-size: 13px; line-height: 1.45; }
+  .leaflet-bar { border: 0 !important; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(24,24,27,.25) !important; }
+  .leaflet-bar a { color: #18181b; }
+  .leaflet-tile-pane { filter: saturate(.55) brightness(1.04); }   /* soften the basemap so the data stands out */
+</style>
+</head>
+<body class="bg-zinc-50 text-zinc-950 antialiased">
+<div class="flex min-h-screen flex-col md:h-screen">
+
+  <header class="flex h-14 flex-none items-center gap-3 border-b border-zinc-200 bg-white px-4">
+    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
+      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+    </div>
+    <div class="leading-tight">
+      <h1 class="text-sm font-semibold tracking-tight">FacilityGeo</h1>
+      <p class="hidden text-xs text-zinc-500 sm:block">Health information system rollout, Malawi</p>
+    </div>
+    <span id="simBadge" hidden class="ml-auto rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800" title="Some support officers shown are simulated, for demonstration.">Simulated officers</span>
+  </header>
+
+  <div class="flex flex-1 flex-col md:min-h-0 md:flex-row">
+
+    <aside class="order-2 w-full space-y-5 border-t border-zinc-200 bg-zinc-50 p-4 md:order-1 md:w-[390px] md:flex-none md:overflow-y-auto md:border-r md:border-t-0">
+
+      <section>
+        <h2 class="card-title mb-3">Summary</h2>
+        <div id="kpis"></div>
+      </section>
+
+      <section class="card">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="card-title">Show on the map</h2>
+          <button id="fReset" type="button" class="btn btn-outline btn-sm">Clear</button>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="field-label">Status</span>
+            <select id="fStatus" class="input">
+              <option value="">All</option>
+              <option value="live">Live</option>
+              <option value="in_progress">Setting up</option>
+              <option value="not_started">Not started</option>
+              <option value="not_in_tracker">Not tracked</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="field-label">District</span>
+            <select id="fDistrict" class="input"><option value="">All</option></select>
+          </label>
+        </div>
+        <label id="fHighlightWrap" hidden class="mt-3 block">
+          <span class="field-label">Highlight</span>
+          <select id="fHighlight" class="input">
+            <option value="">Nothing</option>
+            <option value="no_internet">No internet recorded</option>
+            <option value="no_power">No power recorded</option>
+            <option value="far" id="optFar" hidden disabled>Far from every officer (&gt; 100 km)</option>
+          </select>
+        </label>
+        <p id="highlightInfo" class="mt-2 text-xs text-zinc-500 empty:hidden"></p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title mb-1">Map layers</h2>
+        <div class="divide-y divide-zinc-100">
+          <label class="flex cursor-pointer items-center justify-between gap-3 py-2.5 text-sm">
+            <span>Districts (shaded by % live)</span>
+            <input type="checkbox" data-layer="districts" checked class="peer sr-only"><span class="switch"></span>
+          </label>
+          <label class="flex cursor-pointer items-center justify-between gap-3 py-2.5 text-sm">
+            <span>Facilities</span>
+            <input type="checkbox" data-layer="facilities" checked class="peer sr-only"><span class="switch"></span>
+          </label>
+          <label id="officerLayerLabel" hidden class="flex cursor-pointer items-center justify-between gap-3 py-2.5 text-sm">
+            <span>Support officers</span>
+            <input type="checkbox" data-layer="officers" checked class="peer sr-only"><span class="switch"></span>
+          </label>
+          <label class="flex cursor-pointer items-center justify-between gap-3 py-2.5 text-sm">
+            <span>Groups of nearby facilities</span>
+            <input type="checkbox" data-layer="clusters" checked class="peer sr-only"><span class="switch"></span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Find groups of facilities</h2>
+        <p class="mb-3 text-xs text-zinc-500">Finds facilities that are close together and share the same status, to help plan visits.</p>
+        <div class="mb-1 flex items-center justify-between text-xs font-medium text-zinc-500">
+          <span>How close together</span><span><b id="epsVal" class="text-zinc-950">15</b> km</span>
+        </div>
+        <input type="range" id="eps" min="5" max="60" step="1" value="15" class="w-full accent-zinc-900">
+        <div class="mt-3 grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="field-label">Smallest group</span>
+            <input type="number" id="minPts" min="2" max="50" value="5" class="input">
+          </label>
+          <label class="block">
+            <span class="field-label">Status</span>
+            <select id="cStatus" class="input">
+              <option value="not_started" selected>Not started</option>
+              <option value="in_progress">Setting up</option>
+              <option value="live">Live</option>
+              <option value="not_in_tracker">Not tracked</option>
+            </select>
+          </label>
+        </div>
+        <button id="findClusters" type="button" class="btn mt-3 w-full">Find groups</button>
+        <p id="clusterInfo" class="mt-3 text-xs text-zinc-500 empty:hidden"></p>
+        <div id="clusterList" class="mt-2 max-h-64 overflow-y-auto"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title mb-1">Count facilities near a spot</h2>
+        <label class="flex cursor-pointer items-center justify-between gap-3 py-2 text-sm">
+          <span>Click the map to count nearby facilities</span>
+          <input type="checkbox" id="radiusOn" class="peer sr-only"><span class="switch"></span>
+        </label>
+        <label class="mt-1 block">
+          <span class="field-label">Within (km)</span>
+          <input type="number" id="radiusKm" min="1" max="500" value="20" class="input">
+        </label>
+        <p id="radiusInfo" class="mt-2 text-xs text-zinc-500 empty:hidden"></p>
+      </section>
+    </aside>
+
+    <main class="relative order-1 h-[60vh] md:order-2 md:h-auto md:min-w-0 md:flex-1">
+      <div id="map" class="absolute inset-0 bg-zinc-200"></div>
+      <div id="msg" class="pointer-events-none absolute left-1/2 top-3 z-[1000] w-max max-w-[70%] -translate-x-1/2 rounded-full border border-zinc-200 bg-white/95 px-4 py-1.5 text-center text-xs font-medium text-zinc-800 shadow-md">Loading...</div>
+    </main>
+  </div>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+"use strict";
+
+const COLORS = { live: "#16a34a", in_progress: "#f59e0b", not_started: "#dc2626", not_in_tracker: "#a1a1aa" };
+const LABELS = { live: "Live", in_progress: "Setting up", not_started: "Not started", not_in_tracker: "Not tracked" };
+const SETTABLE = ["not_started", "in_progress", "live"];   // statuses a user can set
+const TRAINING = { done: "Done", in_progress: "In progress", not_started: "Not started" };
+const NO_DATA = "#e4e4e7";
+const PCT_CLASSES = [[80, "#1a9850"], [60, "#a6d96a"], [40, "#fee08b"], [20, "#fc8d59"], [0, "#d73027"]];
+
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const yesNo = (v) => (v === true ? "Yes" : v === false ? "No" : "not recorded");
+const pctColor = (p) => (PCT_CLASSES.find(([min]) => (p ?? 0) >= min) || PCT_CLASSES[4])[1];
+
+function notify(text, isError = false) {
+  const el = $("msg");
+  el.textContent = text;
+  el.hidden = !text;
+  el.classList.toggle("bg-white/95", !isError);
+  el.classList.toggle("text-zinc-800", !isError);
+  el.classList.toggle("border-zinc-200", !isError);
+  el.classList.toggle("bg-red-50", isError);
+  el.classList.toggle("text-red-700", isError);
+  el.classList.toggle("border-red-200", isError);
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { const body = await res.json(); detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail); } catch (_) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+/* ------------------------------------------------------------------ map */
+const MALAWI_BOUNDS = [[-17.2, 32.6], [-9.3, 35.95]];
+const map = L.map("map", { zoomSnap: 0.25 }).fitBounds(MALAWI_BOUNDS);
+// Keep Leaflet's cached size correct when the layout changes (window resize, stacked layout).
+new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById("map"));
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 18, attribution: "&copy; OpenStreetMap contributors",
+}).addTo(map);
+map.createPane("pDistricts").style.zIndex = 300;
+map.createPane("pClusters").style.zIndex = 420;
+map.createPane("pUntracked").style.zIndex = 440;   // facilities with no tracker row, under the tracked ones
+map.createPane("pFacilities").style.zIndex = 450;
+map.createPane("pHighlight").style.zIndex = 460;
+map.createPane("pTools").style.zIndex = 470;
+
+const layers = {
+  districts: L.layerGroup().addTo(map),
+  facilities: L.layerGroup().addTo(map),
+  officers: L.layerGroup().addTo(map),
+  clusters: L.layerGroup().addTo(map),
+  highlight: L.layerGroup().addTo(map),
+  tools: L.layerGroup().addTo(map),   // nearest-officer line, radius circle
+};
+const markers = new Map(); // facility id -> circleMarker
+let HAS_OFFICERS = false;   // set once /officers has loaded; officer features are hidden while there are none
+
+const dot = (c) => `<span class="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle" style="background:${c}"></span>`;
+const legend = L.control({ position: "topright" });
+legend.onAdd = () => {
+  const div = L.DomUtil.create("div", "hidden rounded-[4px] border border-zinc-200 bg-white/95 p-3 text-xs leading-6 shadow-md md:block");
+  div.innerHTML =
+    '<div class="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Facility status</div>' +
+    Object.keys(COLORS).map((k) => `<div>${dot(COLORS[k])}${LABELS[k]}</div>`).join("") +
+    '<div class="mb-0.5 mt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">District: share of tracked facilities that are live</div>' +
+    PCT_CLASSES.slice().reverse().map(([min, c], i, a) => `<div><span class="mr-2 inline-block h-2.5 w-3.5 rounded-sm align-middle" style="background:${c}"></span>${min}${i < a.length - 1 ? "–" + a[i + 1][0] : "+"}%</div>`).join("") +
+    `<div><span class="mr-2 inline-block h-2.5 w-3.5 rounded-sm align-middle" style="background:${NO_DATA}"></span>no tracker rows</div>` +
+    (HAS_OFFICERS ? '<div class="mt-1 text-zinc-500">blue dot: support officer</div>' : "");
+  return div;
+};
+legend.addTo(map);
+
+/* ------------------------------------------------------------------ summary */
+async function loadSummary() {
+  const s = await api("/stats/summary");
+  const tracked = s.tracked || 0;
+  const pct = (n, of) => (of ? Math.round((1000 * n) / of) / 10 : 0);
+  const stat = (label, value, sub, color) =>
+    `<div class="rounded-[4px] border border-zinc-200 bg-white p-3 shadow-sm">
+       <div class="flex items-center gap-1.5 text-xs text-zinc-500">${color ? `<span class="inline-block h-2 w-2 rounded-full" style="background:${color}"></span>` : ""}${esc(label)}</div>
+       <div class="mt-1 text-2xl font-semibold tracking-tight tabular-nums">${esc(value)}</div>
+       <div class="text-[11px] text-zinc-400">${esc(sub || "\u00a0")}</div>
+     </div>`;
+  // One stacked bar: segments are [count, colour, label]; widths are shares of `of`.
+  const bar = (segments, of) =>
+    `<div class="flex h-2 w-full overflow-hidden rounded-full bg-zinc-100" role="img" aria-label="${esc(segments.map((g) => `${g[2]} ${g[0]}`).join(", "))}">` +
+    segments.map(([n, c, l]) => (n && of ? `<div style="width:${(100 * n) / of}%;background:${c}" title="${esc(l)}: ${n}"></div>` : "")).join("") + "</div>";
+  const row = (label, n, color, of, status) => {
+    const inner = `<span class="flex items-center gap-2"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:${color}"></span>${esc(label)}</span>` +
+      `<span class="flex items-baseline gap-2"><span class="font-medium tabular-nums">${n}</span>${of ? `<span class="w-12 text-right text-xs tabular-nums text-zinc-400">${pct(n, of)}%</span>` : ""}</span>`;
+    return status
+      ? `<button type="button" data-status="${status}" title="Show these facilities on the map" class="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-zinc-100">${inner}</button>`
+      : `<div class="flex items-center justify-between py-1.5 text-sm">${inner}</div>`;
+  };
+  const panel = (title, note, body) =>
+    `<div class="card mt-3"><div class="mb-3 flex items-baseline justify-between"><h3 class="card-title">${esc(title)}</h3><span class="text-xs text-zinc-400">${esc(note)}</span></div>${body}</div>`;
+  const connectivity = [];
+  if (s.internet_recorded) connectivity.push(row("No internet", s.no_internet, "#71717a"));
+  if (s.power_recorded) connectivity.push(row("No power", s.no_power, "#71717a"));
+  $("kpis").innerHTML =
+    `<div class="grid grid-cols-2 gap-2">` +
+      stat("Health facilities", s.facilities, "in Malawi") +
+      stat("Being tracked", tracked, "have a rollout status") +
+    `</div>` +
+    `<div class="card mt-3">
+       <div class="text-xs text-zinc-500">Using the new system</div>
+       <div class="mt-1 flex items-baseline gap-2"><span class="text-4xl font-semibold tracking-tight tabular-nums">${s.live}</span><span class="text-sm text-zinc-500">of ${tracked} tracked facilities (${s.pct_live ?? 0}%)</span></div>
+       <div class="mt-3">${bar([[s.live, COLORS.live, "Live"], [s.in_progress, COLORS.in_progress, "Setting up"], [s.not_started, COLORS.not_started, "Not started"]], tracked)}</div>
+       <div class="mt-3">${row("Live", s.live, COLORS.live, 0, "live")}${row("Setting up", s.in_progress, COLORS.in_progress, 0, "in_progress")}${row("Not started", s.not_started, COLORS.not_started, 0, "not_started")}${row("Not tracked", s.not_in_tracker, COLORS.not_in_tracker, 0, "not_in_tracker")}</div>
+     </div>` +
+    (s.tracker_unmatched
+      ? `<details class="card mt-3">
+           <summary class="cursor-pointer text-sm font-medium text-zinc-900">${s.tracker_unmatched} tracker rows not on the map</summary>
+           <p class="mt-2 text-xs text-zinc-500">These names are in the spreadsheet but could not be matched to a DHIS2 facility, so they are left off the map rather than guessed. The tracker has ${s.tracker_rows} rows; ${s.tracker_matched} matched.</p>
+           <ul class="mt-2 max-h-40 space-y-1 overflow-y-auto text-sm text-zinc-700">${(s.tracker_unmatched_rows || []).map((r) =>
+             `<li><span class="font-medium">${esc(r.facility_name)}</span><span class="text-zinc-400"> · ${esc(r.district)}</span></li>`).join("")}</ul>
+         </details>`
+      : "") +
+    (connectivity.length ? panel("Connectivity", "from the tracker", connectivity.join("")) : "");
+  // The tracker has no internet or power columns: only offer those highlights when data exists.
+  for (const [value, recorded, label] of [["no_internet", s.internet_recorded, "No internet recorded"], ["no_power", s.power_recorded, "No power recorded"]]) {
+    const opt = $("fHighlight").querySelector(`[value="${value}"]`);
+    opt.disabled = !recorded;
+    opt.textContent = recorded ? label : label + " (no data in the tracker)";
+  }
+  syncHighlightField();
+}
+
+// The Highlight filter only appears when at least one of its options has data behind it.
+function syncHighlightField() {
+  $("fHighlightWrap").hidden = [...$("fHighlight").options].every((o) => !o.value || o.disabled || o.hidden);
+}
+
+// Fill the District filter once, from the districts that have facilities.
+async function loadDistrictOptions() {
+  const sel = $("fDistrict");
+  if (sel.options.length > 1) return;
+  const rows = await api("/stats/districts?sort=pct_live_desc");
+  rows.map((r) => r.district).sort().forEach((d) => sel.add(new Option(d, d)));
+}
+
+/* ---------------------------------------------------------------- districts */
+async function loadDistricts() {
+  const fc = await api("/districts");
+  layers.districts.clearLayers();
+  L.geoJSON(fc, {
+    pane: "pDistricts",
+    style: (f) => ({ color: "#71717a", weight: 1, fillColor: f.properties.tracked ? pctColor(f.properties.pct_live) : NO_DATA, fillOpacity: f.properties.tracked ? 0.5 : 0.4 }),
+    onEachFeature: (f, layer) => {
+      const p = f.properties;
+      layer.bindTooltip(p.tracked
+        ? `${esc(p.name)}: ${p.live} of ${p.tracked} tracked facilities live (${p.pct_live}%); ${p.total} facilities in total`
+        : `${esc(p.name)}: none of its ${p.total} facilities are in the tracker`, { sticky: true });
+    },
+  }).addTo(layers.districts);
+}
+
+/* --------------------------------------------------------------- facilities */
+function statusBadge(s) {
+  return `<span class="badge" style="background:${COLORS[s] || "#71717a"}">${esc(LABELS[s] || s)}</span>`;
+}
+
+function popupHtml(p) {
+  const untracked = p.deployment_status === "not_in_tracker";
+  const options = (untracked ? '<option value="" selected disabled>Not tracked</option>' : "") +
+    SETTABLE.map((k) => `<option value="${k}" ${k === p.deployment_status ? "selected" : ""}>${LABELS[k]}</option>`).join("");
+  const tr = (k, v) => `<tr class="border-t border-zinc-100"><td class="py-1 pr-4 text-zinc-500">${k}</td><td class="py-1">${v}</td></tr>`;
+  return `<div class="popup" data-id="${p.id}">
+    <h3 class="text-[15px] font-semibold tracking-tight">${esc(p.name)}</h3>
+    <div class="mt-1 flex flex-wrap items-center gap-2 text-zinc-500">${esc(p.district)}${p.facility_type ? " · " + esc(p.facility_type) : ""} ${statusBadge(p.deployment_status)}</div>
+    <table class="mt-3 w-full border-collapse text-[13px]">
+      ${tr("Training", esc(TRAINING[p.training_status] || "not recorded"))}
+      ${tr("Go-live", esc(p.go_live_date || "not recorded"))}
+      ${tr("Devices", esc(p.devices_installed ?? "not recorded"))}
+      ${tr("Staff trained", esc(p.staff_trained ?? "not recorded"))}
+      ${tr("Internet", yesNo(p.has_internet))}
+      ${tr("Power", yesNo(p.has_power))}
+      ${HAS_OFFICERS ? tr("Assigned officer", esc(p.support_officer || "none")) : ""}
+      ${tr("Code", esc(p.facility_code))}
+    </table>
+    ${HAS_OFFICERS ? '<div class="mt-3"><button type="button" data-act="officer" class="btn btn-sm w-full">Show nearest officer</button></div>' : ""}
+    <div class="mt-3 flex items-center gap-2">
+      <select data-role="status" class="input h-8 flex-1 text-xs">${options}</select>
+      <button type="button" data-act="save" class="btn btn-outline btn-sm">Update status</button>
+    </div>
+    <div class="pmsg mt-2 text-xs text-zinc-500"></div>
+  </div>`;
+}
+
+function styleMarker(m, highlighted = false) {
+  const p = m.feature.properties;
+  const untracked = p.deployment_status === "not_in_tracker";
+  m.setStyle({
+    radius: highlighted ? 8 : untracked ? 3.5 : 6.5, weight: highlighted ? 3 : untracked ? 0.5 : 1.5,
+    color: highlighted ? "#18181b" : "#fff", fillColor: COLORS[p.deployment_status] || "#71717a",
+    fillOpacity: untracked && !highlighted ? 0.55 : 0.95,
+  });
+  if (highlighted) m.bringToFront();
+}
+
+async function loadFacilities(fit = false) {
+  const q = new URLSearchParams();
+  if ($("fStatus").value) q.set("status", $("fStatus").value);
+  if ($("fDistrict").value) q.set("district", $("fDistrict").value);
+  const fc = await api("/facilities?" + q);
+  layers.facilities.clearLayers();
+  markers.clear();
+  for (const f of fc.features) {
+    const [lon, lat] = f.geometry.coordinates;  // GeoJSON is lon, lat; Leaflet wants lat, lon
+    const m = L.circleMarker([lat, lon], { pane: f.properties.deployment_status === "not_in_tracker" ? "pUntracked" : "pFacilities" });
+    m.feature = f;
+    styleMarker(m);
+    m.bindPopup(() => popupHtml(m.feature.properties), { minWidth: 270 });
+    m.addTo(layers.facilities);
+    markers.set(f.properties.id, m);
+  }
+  if (fit && fc.features.length) {
+    map.fitBounds(L.featureGroup([...markers.values()]).getBounds().pad(0.15));
+  }
+  notify(`${fc.count} facilities shown${$("fStatus").value ? " · " + LABELS[$("fStatus").value] : ""}${$("fDistrict").value ? " · " + $("fDistrict").value : ""}`);
+}
+
+// Popups are built on demand, so their buttons are wired when a popup opens and
+// again whenever its content is replaced (after a status update).
+function wirePopup(popup) {
+  const root = popup.getElement();
+  const box = root && root.querySelector(".popup[data-id]");
+  if (!box) return;
+  const id = Number(box.dataset.id);
+  const out = box.querySelector(".pmsg");
+  const officerBtn = box.querySelector('[data-act="officer"]');
+  if (officerBtn) officerBtn.onclick = async () => {
+    try {
+      const r = await api(`/analysis/nearest-officer?facility_id=${id}`);
+      layers.tools.clearLayers();
+      const pts = r.line.coordinates.map(([lon, lat]) => [lat, lon]);
+      L.polyline(pts, { pane: "pTools", color: "#1d4ed8", weight: 3, dashArray: "6 6" }).addTo(layers.tools);
+      map.fitBounds(L.latLngBounds(pts).pad(0.4));
+      out.textContent = `Nearest officer: ${r.officer.name} (${r.officer.base_location}), ${r.distance_km} km away` +
+        (r.matches_assigned_officer ? " (the assigned officer)" : " (differs from the assigned officer)");
+    } catch (err) { out.textContent = "Error: " + err.message; }
+  };
+  box.querySelector('[data-act="save"]').onclick = async () => {
+    const status = box.querySelector('[data-role="status"]').value;
+    if (!status) { out.textContent = "Choose a status first."; return; }
+    try {
+      const r = await api(`/facilities/${id}/status`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deployment_status: status }),
+      });
+      const m = markers.get(id);
+      if (m) {
+        m.feature.properties.deployment_status = r.deployment_status;
+        m.feature.properties.go_live_date = r.go_live_date;
+        styleMarker(m);
+        m.setPopupContent(popupHtml(m.feature.properties));  // replaces the DOM: re-wire it
+        wirePopup(m.getPopup());
+        m.getPopup().getElement().querySelector(".pmsg").textContent = "Saved: " + LABELS[r.deployment_status];
+      }
+      await Promise.all([loadSummary(), loadDistricts()]);
+    } catch (err) { out.textContent = "Error: " + err.message; }
+  };
+}
+map.on("popupopen", (e) => wirePopup(e.popup));
+
+/* ----------------------------------------------------------------- officers */
+async function loadOfficers() {
+  const fc = await api("/officers");
+  layers.officers.clearLayers();
+  HAS_OFFICERS = fc.features.length > 0;
+  // Officer features only exist when officers are loaded.
+  $("officerLayerLabel").hidden = !HAS_OFFICERS;
+  $("optFar").hidden = $("optFar").disabled = !HAS_OFFICERS;
+  syncHighlightField();
+  const anySimulated = fc.features.some((f) => f.properties.is_simulated);
+  $("simBadge").hidden = !anySimulated;
+  legend.remove(); legend.addTo(map);   // rebuild the legend (the officer line depends on officers)
+  for (const f of fc.features) {
+    const [lon, lat] = f.geometry.coordinates, p = f.properties;
+    L.marker([lat, lon], { icon: L.divIcon({ className: "", html: '<div class="h-3.5 w-3.5 rounded-full border-2 border-white bg-blue-700 shadow"></div>', iconSize: [14, 14], iconAnchor: [7, 7] }) })
+      .bindPopup(`<div class="popup"><h3 class="text-[15px] font-semibold">${esc(p.name)}</h3><div class="text-zinc-500">${esc(p.base_location)}</div>
+        <div class="mt-2">${esc(p.facilities)} facilities assigned (nearest officer)</div>
+        <div class="mt-1 text-xs text-zinc-500">${p.is_simulated ? "Simulated officer, for demonstration" : ""}</div></div>`)
+      .addTo(layers.officers);
+  }
+}
+
+/* ----------------------------------------------------------------- clusters */
+$("eps").addEventListener("input", () => ($("epsVal").textContent = $("eps").value));
+
+function highlightIds(ids) {
+  const set = new Set(ids);
+  markers.forEach((m, id) => styleMarker(m, set.has(id)));
+}
+
+$("findClusters").addEventListener("click", async () => {
+  const btn = $("findClusters");
+  btn.disabled = true;
+  try {
+    const q = new URLSearchParams({ eps_km: $("eps").value, min_points: $("minPts").value, status: $("cStatus").value });
+    const r = await api("/analysis/clusters?" + q);
+    layers.clusters.clearLayers();
+    const list = $("clusterList");
+    list.innerHTML = "";
+    r.clusters.forEach((c, i) => {
+      const o = c.nearest_officer;   // null while no officers are loaded
+      const layer = L.geoJSON(c.hull, {
+        pane: "pClusters", style: { color: "#b91c1c", weight: 2, dashArray: "6 4", fillColor: "#dc2626", fillOpacity: 0.2 },
+      }).bindPopup(`<div class="popup"><h3 class="text-[15px] font-semibold">Group ${i + 1}: ${c.size} ${esc(LABELS[r.status].toLowerCase())} facilities</h3>
+        <div class="mt-1 text-zinc-500">${esc(c.districts.join(", "))}</div>
+        ${o ? `<div class="mt-2">Nearest officer: <b>${esc(o.name)}</b> (${esc(o.base_location)}), ${esc(o.distance_km)} km from the middle of the group</div>` : ""}</div>`)
+        .addTo(layers.clusters);
+      const item = document.createElement("div");
+      item.className = "flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-zinc-100";
+      item.innerHTML = `<span class="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-red-100 text-xs font-semibold text-red-700">${i + 1}</span>` +
+        `<span class="leading-tight"><b class="font-medium">${c.size} facilities</b>` +
+        `<span class="block text-xs text-zinc-500">${esc(c.districts.slice(0, 3).join(", "))}${c.districts.length > 3 ? "…" : ""}${o ? ` · ${esc(o.name)} (${esc(o.distance_km)} km)` : ""}</span></span>`;
+      item.onclick = () => { map.fitBounds(layer.getBounds().pad(0.3)); layer.openPopup(); highlightIds(c.facility_ids); };
+      list.appendChild(item);
+    });
+    $("clusterInfo").textContent =
+      r.clusters.length
+        ? `${r.clustered} of ${r.facilities_with_status} ${LABELS[r.status].toLowerCase()} facilities are in ${r.clusters.length} ${r.clusters.length === 1 ? "group" : "groups"}; ${r.noise} are on their own. Click a group below to zoom to it.`
+        : `No groups found. Try a larger distance or a smaller group size.`;
+    notify(`${r.clusters.length} ${r.clusters.length === 1 ? "group" : "groups"} found`);
+  } catch (err) { notify(err.message, true); }
+  btn.disabled = false;
+});
+
+/* ----------------------------------------------------------------- highlight */
+async function applyHighlight() {
+  layers.highlight.clearLayers();
+  const kind = $("fHighlight").value;
+  $("highlightInfo").textContent = "";
+  if (!kind) return;
+  try {
+    let fc, text;
+    if (kind === "far") {
+      fc = await api("/analysis/far-from-officer?km=100");
+      text = `${fc.count} facilities are more than 100 km from every officer.`;
+    } else {
+      fc = await api("/analysis/no-connectivity");
+      const key = kind === "no_internet" ? "has_internet" : "has_power";
+      fc.features = fc.features.filter((f) => f.properties[key] === false);
+      text = `${fc.features.length} facilities recorded with ${kind === "no_internet" ? "no internet" : "no power"} (unknown values are not counted).`;
+    }
+    for (const f of fc.features) {
+      const [lon, lat] = f.geometry.coordinates;
+      L.circleMarker([lat, lon], { pane: "pHighlight", radius: 10, color: "#18181b", weight: 2, fill: false, interactive: false }).addTo(layers.highlight);
+    }
+    $("highlightInfo").textContent = text;
+  } catch (err) { notify(err.message, true); }
+}
+$("fHighlight").addEventListener("change", applyHighlight);
+
+/* -------------------------------------------------------------------- radius */
+$("radiusOn").addEventListener("change", () => $("map").classList.toggle("crosshair", $("radiusOn").checked));
+map.on("click", async (e) => {
+  if (!$("radiusOn").checked) return;
+  const km = Number($("radiusKm").value);
+  if (!(km > 0 && km <= 500)) { $("radiusInfo").textContent = "Enter a distance between 1 and 500 km."; return; }
+  try {
+    const q = new URLSearchParams({ lat: e.latlng.lat.toFixed(5), lon: e.latlng.lng.toFixed(5), radius_km: km });
+    if ($("fStatus").value) q.set("status", $("fStatus").value);
+    const r = await api("/analysis/within-radius?" + q);
+    layers.tools.clearLayers();
+    L.circle(e.latlng, { pane: "pTools", radius: km * 1000, color: "#1d4ed8", weight: 2, fillOpacity: 0.06, interactive: false }).addTo(layers.tools);
+    const parts = Object.entries(r.by_status).map(([k, v]) => `${LABELS[k]}: ${v}`).join(", ");
+    $("radiusInfo").textContent = `${r.count} facilities within ${km} km${parts ? ": " + parts : ""}.`;
+  } catch (err) {
+    $("radiusInfo").textContent = err.message.includes("less_than") || err.message.includes("greater_than")
+      ? "That point is outside Malawi." : err.message;
+  }
+});
+
+/* ------------------------------------------------------------- filters/layers */
+function applyFilters(fit) { return loadFacilities(fit).catch((e) => notify(e.message, true)); }
+$("fStatus").addEventListener("change", () => applyFilters(false));
+// Clicking a rollout row in the summary filters the map to that status (click it again to clear).
+$("kpis").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-status]");
+  if (!b) return;
+  $("fStatus").value = $("fStatus").value === b.dataset.status ? "" : b.dataset.status;
+  applyFilters(false);
+});
+$("fDistrict").addEventListener("change", () => applyFilters(true));
+$("fReset").addEventListener("click", () => {
+  $("fStatus").value = ""; $("fDistrict").value = "";
+  layers.tools.clearLayers();
+  applyFilters(false).then(() => map.fitBounds(MALAWI_BOUNDS));
+});
+document.querySelectorAll("[data-layer]").forEach((cb) =>
+  cb.addEventListener("change", () => (cb.checked ? map.addLayer(layers[cb.dataset.layer]) : map.removeLayer(layers[cb.dataset.layer])))
+);
+
+/* --------------------------------------------------------------------- start */
+(async function init() {
+  try {
+    await Promise.all([loadSummary(), loadDistrictOptions(), loadDistricts(), loadOfficers()]);
+    await loadFacilities(false);
+    map.invalidateSize();            // layout is final now; refit to the real map size
+    map.fitBounds(MALAWI_BOUNDS);
+    $("findClusters").click();
+  } catch (err) {
+    notify("Could not load data: " + err.message + ". Is the API running and the database reachable?", true);
+  }
+})();
+</script>
+</body>
+</html>
