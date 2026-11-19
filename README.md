@@ -1,172 +1,56 @@
 # FacilityGeo
 
-A database-driven web app that shows where a health-information-system rollout stands across health facilities in Malawi, where the gaps are, and which not-started facilities sit close together.
+Database-driven map app for a Malawi health-information-system rollout: where facilities stand, where gaps are, and which not-started sites cluster together.
 
-> **Data note.** Facility locations are real (DHIS2 organisation units), district polygons are real (HDX), and rollout and training status come from the real rollout tracker (59 facilities, of which 47 match a DHIS2 facility). The tracker lists only about 5% of the 908 facilities, so every other facility is shown as **Not in tracker** (status unknown, not "not started"). **No simulated or seed data is used.** There are no support officers in the database, so the officer features (nearest officer, far from every officer) are hidden until real officers are loaded (see section 4). The tracker has no equipment, internet or power columns, so those are not shown. No patient or personal data is held. The real tracker file is not in Git.
+**Stack:** PostgreSQL 17 + PostGIS 3.7 + `pg_trgm` · FastAPI · Leaflet + Tailwind (CDN) · QGIS
 
-## 1. The problem
+**Data:** real DHIS2 facility points (908), HDX districts (28), and a real rollout tracker (59 rows, 47 matched). No seed or simulated data. No officers, funder, internet, or power columns in the tracker used. Real files stay out of Git (`data/`).
 
-The rollout team tracks progress in a spreadsheet. A spreadsheet cannot answer location questions:
+## Spatial methods
 
-- Which facilities are not live yet, and are they clustered?
-- Which districts are falling behind?
-- Which facilities have no internet or no power, and need a different approach? (The tracker has no such columns, so the app only shows this if the data is added.)
-- Where do we have no tracking information at all?
-
-## 2. The solution
-
-Facilities live in PostGIS. The API answers those questions with spatial SQL and a Leaflet page draws the answers on a map.
-
-| Question | Spatial method |
+| Question | Method |
 |---|---|
-| Facilities within N km of a point | `ST_DWithin` on `geography` (metres) |
-| Nearest support officer (only when real officers are loaded) | KNN `<->` to pick 3 candidates, then `ST_Distance(::geography)` for the true nearest |
-| Clusters of not-started facilities | `ST_ClusterDBSCAN` in EPSG:32736 (metres), with `ST_ConvexHull` outlines |
-| % live per district | `GROUP BY` the facility's DHIS2 district name (joined to HDX polygons by name; Mzimba North/South → Mzimba). QGIS separately cross-checks point-in-polygon counts with `ST_Contains` |
-| Matching tracker rows to facilities | DHIS2 code, exact name, core name (type words removed, unique in the district), then `pg_trgm` fuzzy name, then reviewed manual matches |
+| Facilities within N km | `ST_DWithin` on `geography` |
+| Clusters of not-started facilities | `ST_ClusterDBSCAN` (EPSG:32736) + `ST_ConvexHull` |
+| % live per district | `GROUP BY` DHIS2 district name (joined to HDX by name). QGIS cross-checks counts with `ST_Contains` |
+| Tracker → facility match | DHIS2 code → exact name → core name → `pg_trgm` fuzzy → manual matches |
 
-## 3. Architecture
+## Run locally
 
-```mermaid
-flowchart LR
-    A[DHIS2 org units GeoJSON] -->|scripts/load_orgunits.py| P[(PostgreSQL + PostGIS)]
-    B[HDX district polygons] -->|scripts/load_districts.py| P
-    C[Rollout tracker .xlsx to CSV] -->|scripts/load_tracker.py + match/apply SQL| P
-    P --> F[FastAPI + psycopg2 pool]
-    F -->|GeoJSON / JSON| L[Leaflet page]
-    P <-->|local connection| Q[QGIS 3.44]
-    Q <-->|MCP, localhost only| M[AI assistant]
-```
-
-- **Database:** local PostgreSQL 17 with PostGIS 3.7 and `pg_trgm`. No Docker.
-- **API:** FastAPI, parameterised queries only, inputs validated with pydantic. `/docs` has the interactive reference.
-- **Frontend:** one HTML file styled with Tailwind CSS (loaded from a CDN script tag, so it needs internet, like the map tiles) and the Wix Madefor Display font from Google Fonts. Leaflet is vendored in `frontend/vendor/`. No build step.
-- **QGIS:** project `qgis/facilitygeo.qgz` with styled layers and cross-checks against PostGIS.
-
-## 4. Setup (local PostgreSQL)
-
-Requirements: PostgreSQL with PostGIS, Python 3.10+, optionally QGIS.
-
-**1. Create the database and an application role.** Run these yourself in a terminal. `\password` asks for the password interactively, so it is never written in a file or a command line:
+Needs PostgreSQL with PostGIS and Python 3.10+.
 
 ```bash
 createdb facilitygeo
 psql -d facilitygeo -c "CREATE ROLE geo LOGIN"
 psql -d facilitygeo -c "\password geo"
-```
-
-**2. Create the tables** (run as the database owner, once; safe to re-run). It also grants the `geo` role data access only, with no right to change the schema:
-
-```bash
 psql -d facilitygeo -f database/setup.sql
-```
 
-**3. Configure the connection.** Copy `.env.example` to `.env` and fill in the values. `.env` is ignored by Git. Environment variables work too.
+cp .env.example .env   # set DB_PASSWORD
 
-```
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=facilitygeo
-DB_USER=geo
-DB_PASSWORD=<your password>
-```
-
-**4. Install and load the data** (from this folder):
-
-```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
+# load GeoJSON / tracker with scripts/ and database/*.sql (see scripts/ headers)
 
-python scripts/load_orgunits.py "/path/to/Organisation units.geojson"   # 908 facilities -> orgunits_raw
-python scripts/load_districts.py data/mw_districts.geojson              # 28 HDX polygons
-psql -d facilitygeo -f database/build_facilities.sql                    # orgunits_raw -> facilities
-psql -d facilitygeo -f database/checks.sql                              # read-only data-quality report
-
-python scripts/xlsx_to_csv.py "/path/to/tracker.xlsx" data/tracker.csv  # only if the tracker is a spreadsheet
-python scripts/load_tracker.py data/tracker.csv                         # headers matched by name
-psql -d facilitygeo -f database/match_tracker.sql                       # code -> exact -> core name -> fuzzy; lists unmatched rows
-psql -d facilitygeo -f database/apply_tracker.sql                       # copy matched values into facilities
+uvicorn app.main:app --reload   # http://127.0.0.1:8000  ·  /docs
+pytest -q
 ```
 
-**Support officers (optional).** The `support_officers` table starts empty and the app works without it. When you have real officer locations, insert them (the example is in the header of `database/assign_officers.sql`), then run `psql -d facilitygeo -f database/assign_officers.sql` to assign each facility its nearest officer. The officer layer, "nearest officer" and "far from every officer" appear in the app automatically.
+QGIS: open `qgis/facilitygeo.qgz` and connect to the local database (no password stored in the project).
 
-`data/mw_districts.geojson` is made from the HDX shapefile with `ogr2ogr` (the exact command is in the header of `scripts/load_districts.py`).
+## Notes
 
-`match_tracker.sql` also applies `database/manual_matches.sql` (decisions made by hand, keyed by tracker name and district). To resolve an unmatched row, add one line there, then re-run `match_tracker.sql` and `apply_tracker.sql`.
+- **% live** = live ÷ matched tracked facilities (not all 908). District tooltips show tracked counts.
+- **12 tracker rows** are unmatched and listed in the app summary (not guessed onto the map).
+- Officer / nearest-officer UI stays hidden until real officer locations are loaded.
+- API is for localhost only (no auth).
 
-The tracker needs a facility name and a district. It may also have a go-live status, an end-user training status, a DHIS2 code, a go-live date, devices, staff trained, internet and power. Missing columns stay empty and are never invented. Facilities with no tracker row become `not_in_tracker`.
-
-The `data/` folder is ignored by Git so real files are never committed. No sample or generated tracker is included: without a tracker file every facility is `not_in_tracker`.
-
-**5. Run and check:**
-
-```bash
-uvicorn app.main:app --reload          # http://127.0.0.1:8000  (map)   /docs  (API)
-curl http://127.0.0.1:8000/health      # {"status":"ok", ...}
-pytest -q                              # 16 tests against the live database
-```
-
-## 5. API
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /health` | database and PostGIS check |
-| `GET /facilities?status=&district=&limit=` | GeoJSON of facilities (status: `not_in_tracker`, `not_started`, `in_progress`, `live`) |
-| `POST /facilities` | add a facility (validated; nearest officer assigned if officers exist) |
-| `PATCH /facilities/{id}/status` | change rollout status |
-| `GET /stats/summary`, `GET /stats/districts?sort=` | KPIs (tracked, live, training) and % live of tracked facilities per district |
-| `GET /districts`, `GET /officers` | polygons with % live; officers (empty until real officers are loaded) |
-| `GET /analysis/nearest-officer?facility_id=` | nearest officer and distance (404 while there are no officers) |
-| `GET /analysis/within-radius?lat=&lon=&radius_km=&status=` | facilities in a circle |
-| `GET /analysis/clusters?eps_km=15&min_points=5&status=not_started` | DBSCAN clusters with hulls |
-| `GET /analysis/no-connectivity` | no internet and/or no power |
-| `GET /analysis/far-from-officer?km=100` | facilities far from every officer (empty with a note while there are no officers) |
-| `GET /reports/missing-coordinates` | data-quality report |
-
-## 6. QGIS and the MCP connection
-
-Open `qgis/facilitygeo.qgz` in QGIS 3.44. Layers read the local database through a QGIS connection that you create yourself (**Layer > Data Source Manager > PostgreSQL**); the project stores no password. Styles are in `qgis/styles/`.
-
-To let an AI assistant drive QGIS:
-
-1. Copy `qgis_mcp_plugin/` from the parent repository into your QGIS profile `python/plugins` folder and enable **QGIS MCP**.
-2. In QGIS: **Plugins > QGIS MCP > Start Server**. It listens on `localhost:9876` only. Do not expose this port to a network.
-3. Add the server to your MCP client (`uv --directory .../src/qgis_mcp run qgis_mcp_server.py`).
-
-Safety rules used in this project: no code is run through the `execute_code` tool without reviewing it first, nothing is deleted, and nothing is written to the database from QGIS without approval.
-
-`scripts/compare_qgis_checks.py` compares PostGIS with a QGIS processing output (`native:countpointsinpolygon`). District counts agree exactly: 903 facilities fall in a polygon and 5 fall outside every polygon, in both.
-
-## 7. Data sources
-
-| Data | Source | Status |
-|---|---|---|
-| 908 facility points | DHIS2 organisation units export (UID = `facility_code`) | real |
-| 28 district polygons | HDX Malawi administrative boundaries | real, coarse |
-| Rollout and training status | Rollout tracker spreadsheet: 59 facilities, 47 matched to DHIS2 | real, small |
-| Devices, internet, power, funder, go-live dates | not in the tracker file used (`Facilityi.xlsx` has only district, name, training, go-live status) | not available (empty) |
-| Support officers | none loaded | not available (table empty) |
-
-## 8. Limitations
-
-- **The tracker covers 59 facilities (about 5% of 908).** 861 facilities are `not_in_tracker`; their rollout status is unknown. "% live" is the share of the 47 matched tracked facilities (7 live = 14.9%). A district with one tracked facility can show 100%, so the district tooltip on the map prints the tracked count next to each percentage.
-- **12 of the 59 tracker rows are not matched**, so they are not on the map. The app lists them under Summary ("tracker rows not on the map") and `GET /reports/missing-coordinates` returns the same list. The names: Amecca, Chipande, Kachere, Khungulu, Nancholi and Ntonda (not found in Blantyre in DHIS2); Soche Health Centre, Biwi Health Centre, Kaluluma HC and Mzuzu Central Hospital (no safe candidate); Chilomoni and Zingwangwa (each has two DHIS2 records, a health centre and a BLM clinic, and the choice was not guessed). Biwi Health Centre is the tracker's only "In Progress" row, so the app shows 0 setting up. Resolve them in `database/manual_matches.sql`.
-- The tracker has no DHIS2 codes, so matching is by name. Core-name and fuzzy matches are listed by `match_tracker.sql` for review. Kamuzu Central Hospital is matched by hand to DHIS2's "Lilongwe Central Hospital".
-- **No support-officer data.** Nearest-officer and far-from-officer analysis is built and tested, but it only runs once real officer locations are loaded. Until then those parts of the app are hidden.
-- **No authentication.** The API and page are for localhost use. A production version needs sign-in, roles and HTTPS.
-- Local PostgreSQL uses `trust` authentication on localhost, so a wrong password is accepted. Use `scram-sha-256` in `pg_hba.conf` for anything shared.
-- HDX polygons are coarse: 5 facilities fall outside every polygon. DHIS2 splits Mzimba into North and South, HDX has one polygon.
-- Some coordinates look wrong (for example Zoa Dispensary, Kabuwa HC, Khosolo HC) and there is one duplicate DHIS2 org-unit pair. They are reported by `database/checks.sql` and not changed.
-- Distances are straight lines, not road distances (pgRouting is not installed), so a future "nearest officer" would not be travel time.
-- DBSCAN results depend on the distance setting and the status chosen. The default (not started, 15 km, at least 5) finds one cluster of 24 facilities in Blantyre and Chiradzulu.
-
-## 9. Repository layout
+## Layout
 
 ```
-app/        FastAPI app (config, db pool, schemas, endpoints)
-database/   setup.sql and the loading / matching / analysis SQL
-scripts/    loaders, xlsx converter, QGIS cross-check
-frontend/   index.html (Tailwind via CDN) + vendored Leaflet
-qgis/       project file and QML styles
+app/        FastAPI
+database/   SQL setup, match, apply
+scripts/    loaders
+frontend/   map UI
+qgis/       project + styles
 tests/      API tests
 ```
