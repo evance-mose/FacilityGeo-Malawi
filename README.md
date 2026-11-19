@@ -25,7 +25,6 @@ flowchart LR
     P --> F[FastAPI + psycopg2 pool]
     F -->|GeoJSON / JSON| L[Leaflet page]
     P <-->|local connection| Q[QGIS 3.44]
-    Q <-->|MCP, localhost only| M[AI assistant]
 ```
 
 - **Database:** local PostgreSQL 17 with PostGIS 3.7 and `pg_trgm`. No Docker.

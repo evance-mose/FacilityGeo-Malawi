@@ -1,6 +1,6 @@
 """Compare PostGIS results with a QGIS processing cross-check.
 
-QGIS (via the MCP tools) writes a file into data/:
+Export from QGIS Processing into data/:
   qgis_check_counts.geojson   native:countpointsinpolygon  (districts_hdx x facilities)
 
 Usage (from the FacilityGeo folder):
