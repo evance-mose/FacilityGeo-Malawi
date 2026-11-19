@@ -37,7 +37,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="FacilityGeo",
-    summary="Spatial monitoring of the rollout across health facilities in Malawi",
+    summary="Spatial monitoring of the MaHIS rollout across health facilities in Malawi",
     description=(
         "Deployment gaps, clusters of facilities not yet started, and nearest support "
         "officer, backed by PostgreSQL + PostGIS. No authentication: local use only."
