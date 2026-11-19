@@ -1,104 +1,94 @@
-# Load data with QGIS → PostGIS
+# Same method as the lecture — using Organisation units
 
-Official path: open GeoJSON (or CSV) in QGIS, use the **attribute table** fields, export into PostgreSQL. The web app then reads those tables.
+The lecture used **Malawi schools** and **main roads**:
 
-Do this **after** `database/setup.sql` has created the empty tables.
+1. Create a PostGIS database (pgAdmin / `CREATE EXTENSION postgis`)
+2. Connect QGIS → PostgreSQL
+3. **DB Manager → Import layer** (attribute table + geometry column)
+4. Run spatial SQL (SRID, `ALTER`/`UPDATE`, `ST_Union`, buffer, `ST_Contains`)
+5. Double-click result tables to show them again in QGIS
 
-## 1. Connect QGIS to the database
+This assignment does the **same steps**, with **DHIS2 Organisation units** as the point layer (and the web app reading the same PostGIS database).
 
-**Layer → Data Source Manager → PostgreSQL → New**
+## 1. Database + PostGIS
+
+```bash
+createdb facilitygeo
+psql -d facilitygeo -c "CREATE EXTENSION IF NOT EXISTS postgis"
+psql -d facilitygeo -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
+psql -d facilitygeo -f database/setup.sql
+```
+
+Or use pgAdmin: create DB → Extensions → PostGIS (as in the lecture).
+
+## 2. Connect QGIS
+
+**Browser → PostgreSQL → New Connection**
 
 | Setting | Value |
 |---|---|
-| Name | `facilitygeo` (any label) |
+| Name | e.g. `Postgres 17` or `facilitygeo` |
 | Host | `localhost` |
-| Port | `5432` |
 | Database | `facilitygeo` |
-| User / password | your `geo` (or owner) role |
+| User / password | your role |
 
-Do not store the password in the project file if you will share `facilitygeo.qgz`.
+Test connection → OK. Open **Database → DB Manager**.
 
-## 2. Facilities (DHIS2 org units GeoJSON)
+## 3. Import Organisation units (like importing schools)
 
-1. **Layer → Add Layer → Add Vector Layer** → pick `Organisation units.geojson` (or your DHIS2 export).
-2. Open the attribute table. You should see fields such as `id`, `name`, `parentName`, `level`.
-3. **Database → DB Manager → PostgreSQL → your connection → Import Layer/File**  
-   (or right‑click the layer → **Export → Save Features As… → PostgreSQL**).
+1. **Layer → Add Vector Layer** → `Organisation units.geojson` (or `data/orgunits.geojson`).
+2. Open the **attribute table** (`id`, `name`, `parentName`, `level`, …).
+3. **DB Manager → Import layer/file** → choose that layer.
+4. Target table: `organisation_units` (or `orgunits_raw` if you map fields).
+5. CRS: leave source (EPSG:4326). Geometry column: `geom`.
 
-| QGIS field (attribute table) | PostGIS column (`orgunits_raw`) |
-|---|---|
-| `id` (DHIS2 UID) | `id` |
-| `name` | `name` |
-| `parentName` | `parentname` |
-| `level` | `level` |
-| geometry (Point) | `geom` (EPSG:4326) |
+QGIS writes every attribute field as a column, plus a **geometry** column (hidden in the QGIS attribute table, visible in pgAdmin / SQL).
 
-Import options:
+Optional (lecture layers, for the “too close to roads” demo):
 
-- Schema: `public`
-- Table: `orgunits_raw`
-- Primary key: `id`
-- Geometry column: `geom`
-- CRS: EPSG:4326
-- Prefer **append** into the empty table from `setup.sql` (do not let QGIS invent a new table name)
+- Import `main_roads` shapefile → `main_roads`
+- You can merge / buffer those roads with the same SQL the lecturer used (`ST_Union`, `ST_Buffer`)
 
-Then build the clean `facilities` table (district from `parentname`):
+## 4. Spatial SQL (lecture objectives)
+
+Run the script that mirrors the lecture on organisation units:
 
 ```bash
-psql -d facilitygeo -f database/build_facilities.sql
+psql -d facilitygeo -f database/lecture_style_orgunits.sql
 ```
 
-## 3. Districts (HDX GeoJSON)
+What it does:
 
-1. Add `mw_districts.geojson` (or the HDX polygons) as a vector layer.
-2. Attribute table should include a district name field (often `district`) and optionally `region`.
-3. Import into `districts_hdx`:
-
-| QGIS field | PostGIS column (`districts_hdx`) |
+| Lecture example | This assignment |
 |---|---|
-| `district` (rename to `name` on import if needed) | `name` |
-| `region` | `region` |
-| geometry (Polygon / MultiPolygon) | `geom` (EPSG:4326) |
+| Import schools | Import **organisation units** |
+| Check `ST_SRID` / `spatial_ref_sys` | Same on `organisation_units` |
+| `ALTER` + `UPDATE` (speed limit, time) | Add **`district`** from `parentName` |
+| Schools inside road buffer (`ST_Contains` + `ST_Transform`) | **`orgunits_in_buffer`** |
+| Overlay / join | **`orgunits_by_district_spatial`** (`ST_Contains` with HDX districts) |
+| Load table back into QGIS | Double-click PostGIS tables in DB Manager |
 
-If QGIS creates a temporary column name, rename it in the import dialog to match the table. After import, clean names/regions:
+Also copies into `orgunits_raw` / `facilities` so the **web app** uses the same imported data.
 
-```bash
-psql -d facilitygeo -f database/after_qgis_import.sql
-```
-
-## 4. Rollout tracker (CSV / spreadsheet → attribute table)
-
-The tracker is not GeoJSON. In QGIS:
-
-1. Convert the spreadsheet to CSV if needed.
-2. **Layer → Add Layer → Add Delimited Text Layer** (no geometry, or “No geometry”).
-3. Import into `tracker_raw`, mapping headers to:
-
-| Typical spreadsheet header | PostGIS column (`tracker_raw`) |
-|---|---|
-| Facility / name | `facility_name` |
-| District | `district` |
-| Go-live / status | `status` |
-| End-user training | `training` |
-| DHIS2 code (if any) | `facility_code` |
-
-Leave `facility_id` and `match_method` empty — matching SQL fills them.
-
-Then:
+Then apply the rollout tracker (CSV can also be imported via QGIS as a table with no geometry):
 
 ```bash
 psql -d facilitygeo -f database/match_tracker.sql
 psql -d facilitygeo -f database/apply_tracker.sql
 ```
 
-## 5. Check and open the project
+## 5. Show in QGIS + web app
 
-```bash
-psql -d facilitygeo -f database/checks.sql
-```
+- In DB Manager, double-click `organisation_units`, `orgunits_in_buffer`, `facilities`.
+- Open `qgis/facilitygeo.qgz` for styled layers.
+- Start the app: `uvicorn app.main:app --reload` → http://127.0.0.1:8000
 
-Open `qgis/facilitygeo.qgz`, refresh the PostGIS layers, and start the web app (`uvicorn app.main:app --reload`).
+## Field mapping (attribute table → PostGIS)
 
-## Optional: Python loaders
-
-`scripts/load_orgunits.py`, `load_districts.py`, and `load_tracker.py` do the same inserts without QGIS. Prefer the QGIS path above for the course workflow.
+| QGIS field | Column |
+|---|---|
+| `id` | `id` (DHIS2 UID) |
+| `name` | `name` |
+| `parentName` | `parentName` / `parentname` |
+| `level` | `level` |
+| geometry (Point) | `geom` |
