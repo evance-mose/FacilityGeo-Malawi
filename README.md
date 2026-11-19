@@ -2,7 +2,7 @@
 
 Database-driven map app for a Malawi health-information-system rollout: where facilities stand, where gaps are, and which not-started sites cluster together.
 
-**Method:** same as the course spatial-database lecture (QGIS → PostGIS → spatial SQL → map), using **DHIS2 Organisation units** instead of schools.
+**Method:** QGIS → PostGIS → spatial SQL → map, using DHIS2 organisation units.
 
 **Stack:** PostgreSQL 17 + PostGIS 3.7 + `pg_trgm` · FastAPI · Leaflet + Tailwind (CDN) · QGIS
 
@@ -10,7 +10,7 @@ Database-driven map app for a Malawi health-information-system rollout: where fa
 
 ## Spatial methods
 
-| Question | Method (lecture-style PostGIS) |
+| Question | Method |
 |---|---|
 | Import points with attributes | QGIS **DB Manager → Import layer** → table + `geom` |
 | Check CRS | `ST_SRID` + `spatial_ref_sys` |
@@ -34,9 +34,9 @@ flowchart LR
     F --> L[Leaflet web app]
 ```
 
-Same path as the lecture; the web app is the extra step that reads the same database.
+The web app reads that same database.
 
-Step-by-step: [`qgis/IMPORT.md`](qgis/IMPORT.md) · SQL: [`database/lecture_style_orgunits.sql`](database/lecture_style_orgunits.sql)
+Step-by-step: [`qgis/IMPORT.md`](qgis/IMPORT.md) · SQL: [`database/organisation_units.sql`](database/organisation_units.sql)
 
 ## Run locally
 
@@ -54,10 +54,10 @@ cp .env.example .env
 
 1. Connect QGIS to `facilitygeo`.
 2. Add Organisation units GeoJSON → **DB Manager → Import** → `organisation_units`.
-3. Run lecture-style SQL, then tracker match:
+3. Run the spatial SQL, then the tracker match:
 
 ```bash
-psql -d facilitygeo -f database/lecture_style_orgunits.sql
+psql -d facilitygeo -f database/organisation_units.sql
 psql -d facilitygeo -f database/match_tracker.sql
 psql -d facilitygeo -f database/apply_tracker.sql
 ```
@@ -80,7 +80,7 @@ uvicorn app.main:app --reload   # http://127.0.0.1:8000
 
 ```
 app/        FastAPI
-database/   setup, lecture_style_orgunits, match, apply
+database/   setup, organisation_units, match, apply
 frontend/   map UI
 qgis/       IMPORT.md, project, styles
 tests/      API tests

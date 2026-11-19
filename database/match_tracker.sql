@@ -1,6 +1,6 @@
 -- Match tracker_raw rows to facilities (DHIS2 org units).
 --   psql -h localhost -d facilitygeo -f database/match_tracker.sql      (run from FacilityGeo/)
--- Run after the QGIS import and database/lecture_style_orgunits.sql.
+-- Run after the QGIS import and database/organisation_units.sql.
 -- Safe to re-run: it recomputes facility_id / match_method from scratch.
 --
 -- Order (a row is only matched once):

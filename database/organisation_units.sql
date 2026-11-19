@@ -1,19 +1,20 @@
--- FacilityGeo — same method as the lecture (schools/roads), using Organisation units.
+-- FacilityGeo — organisation units imported from QGIS into PostGIS.
 --
--- Lecture flow:
+-- Flow:
 --   1. PostGIS-enabled database
 --   2. QGIS → DB Manager → Import layer (attribute table + geometry)
---   3. Basic spatial SQL (SRID, ALTER, UPDATE, geometry measures)
---   4. Relational spatial analysis (buffer / overlay with ST_Contains + ST_Transform)
+--   3. Basic spatial SQL (SRID, ALTER, UPDATE)
+--   4. Spatial analysis (buffer / overlay with ST_Contains + ST_Transform)
 --   5. Load result tables back into QGIS (double-click in DB Manager)
 --
 -- Prerequisites:
 --   - database/setup.sql already applied
 --   - Organisation units GeoJSON imported from QGIS into public.organisation_units
---     (see qgis/IMPORT.md). Optional: main_roads + main_roads_buffer from the lecture.
+--   - HDX districts imported from QGIS into public.districts_hdx
+--     (see qgis/IMPORT.md). Optional: main_roads and main_roads_buffer.
 --
 -- Run:
---   psql -d facilitygeo -f database/lecture_style_orgunits.sql
+--   psql -d facilitygeo -f database/organisation_units.sql
 
 -- ---------------------------------------------------------------------------
 -- A. Confirm the QGIS import (attribute table + geometry column)
@@ -24,13 +25,13 @@ SELECT COUNT(*) AS organisation_units,
 FROM organisation_units
 GROUP BY 2, 3;
 
--- CRS meaning (lecture used spatial_ref_sys for 32736; org units are 4326)
+-- CRS check (organisation units are EPSG:4326)
 SELECT srid, auth_name, auth_srid, left(srtext, 100) AS srtext
 FROM spatial_ref_sys
 WHERE srid = (SELECT ST_SRID(geom) FROM organisation_units LIMIT 1);
 
 -- ---------------------------------------------------------------------------
--- B. Basic analysis: add fields and assign values (like speed_limit / time)
+-- B. Add the district name from parentName
 -- ---------------------------------------------------------------------------
 -- District name from DHIS2 parentName (Mangochi-DHO → Mangochi)
 ALTER TABLE organisation_units
@@ -73,8 +74,28 @@ ON CONFLICT (facility_code) DO UPDATE
        geom     = EXCLUDED.geom;
 
 -- ---------------------------------------------------------------------------
--- D. Relational spatial analysis (lecture: schools inside road buffer)
---     Here: organisation units inside the multi-valued main-roads buffer
+-- D. HDX districts imported from QGIS: clean names, regions, and geometry
+-- ---------------------------------------------------------------------------
+UPDATE districts_hdx
+SET name = initcap(btrim(name))
+WHERE name IS NOT NULL;
+
+UPDATE districts_hdx
+SET region = CASE
+        WHEN upper(btrim(region)) IN ('SOUTH', 'SOUTHERN') THEN 'Southern'
+        WHEN upper(btrim(region)) IN ('NORTH', 'NORTHERN') THEN 'Northern'
+        WHEN upper(btrim(region)) IN ('CENTRE', 'CENTRAL') THEN 'Central'
+        WHEN btrim(coalesce(region, '')) = '' AND name IN ('Chikwawa', 'Neno') THEN 'Southern'
+        ELSE initcap(btrim(region))
+    END;
+
+UPDATE districts_hdx
+SET geom = ST_Multi(ST_MakeValid(geom))
+WHERE geom IS NOT NULL
+  AND GeometryType(geom) NOT IN ('MULTIPOLYGON');
+
+-- ---------------------------------------------------------------------------
+-- E. Organisation units inside the main-roads buffer
 -- ---------------------------------------------------------------------------
 DROP TABLE IF EXISTS orgunits_in_buffer;
 CREATE TABLE orgunits_in_buffer AS
@@ -88,7 +109,7 @@ FROM main_roads_buffer rb
 JOIN organisation_units s
   ON ST_Contains(rb.geom, ST_Transform(s.geom, ST_SRID(rb.geom)));
 
--- Point-in-polygon cross-check with districts (lecture overlay idea)
+-- Point-in-polygon: organisation units inside each HDX district
 DROP TABLE IF EXISTS orgunits_by_district_spatial;
 CREATE TABLE orgunits_by_district_spatial AS
 SELECT d.name AS hdx_district,
@@ -101,7 +122,7 @@ JOIN organisation_units o
   ON ST_Contains(d.geom, o.geom);
 
 -- ---------------------------------------------------------------------------
--- E. Quick report (compare with QGIS attribute table / canvas)
+-- F. Quick report (compare with QGIS attribute table / canvas)
 -- ---------------------------------------------------------------------------
 SELECT
     (SELECT COUNT(*) FROM organisation_units) AS imported_from_qgis,

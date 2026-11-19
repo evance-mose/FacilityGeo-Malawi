@@ -1,14 +1,12 @@
-# Same method as the lecture — using Organisation units
-
-The lecture used **Malawi schools** and **main roads**:
+# Import organisation units from QGIS into PostGIS
 
 1. Create a PostGIS database (pgAdmin / `CREATE EXTENSION postgis`)
 2. Connect QGIS → PostgreSQL
 3. **DB Manager → Import layer** (attribute table + geometry column)
-4. Run spatial SQL (SRID, `ALTER`/`UPDATE`, `ST_Union`, buffer, `ST_Contains`)
+4. Run spatial SQL (SRID, `ALTER`/`UPDATE`, buffer, `ST_Contains`)
 5. Double-click result tables to show them again in QGIS
 
-This assignment does the **same steps**, with **DHIS2 Organisation units** as the point layer (and the web app reading the same PostGIS database).
+DHIS2 organisation units are the point layer. The web app reads the same PostGIS database.
 
 ## 1. Database + PostGIS
 
@@ -19,7 +17,7 @@ psql -d facilitygeo -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
 psql -d facilitygeo -f database/setup.sql
 ```
 
-Or use pgAdmin: create DB → Extensions → PostGIS (as in the lecture).
+Or use pgAdmin: create DB → Extensions → PostGIS.
 
 ## 2. Connect QGIS
 
@@ -34,7 +32,7 @@ Or use pgAdmin: create DB → Extensions → PostGIS (as in the lecture).
 
 Test connection → OK. Open **Database → DB Manager**.
 
-## 3. Import Organisation units (like importing schools)
+## 3. Import organisation units
 
 1. **Layer → Add Vector Layer** → `Organisation units.geojson` (or `data/orgunits.geojson`).
 2. Open the **attribute table** (`id`, `name`, `parentName`, `level`, …).
@@ -44,29 +42,27 @@ Test connection → OK. Open **Database → DB Manager**.
 
 QGIS writes every attribute field as a column, plus a **geometry** column (hidden in the QGIS attribute table, visible in pgAdmin / SQL).
 
-Optional (lecture layers, for the “too close to roads” demo):
+Optional, for the facilities-near-roads check:
 
 - Import `main_roads` shapefile → `main_roads`
-- You can merge / buffer those roads with the same SQL the lecturer used (`ST_Union`, `ST_Buffer`)
+- Merge and buffer those roads with `ST_Union` and `ST_Buffer`
 
-## 4. Spatial SQL (lecture objectives)
-
-Run the script that mirrors the lecture on organisation units:
+## 4. Spatial SQL
 
 ```bash
-psql -d facilitygeo -f database/lecture_style_orgunits.sql
+psql -d facilitygeo -f database/organisation_units.sql
 ```
 
 What it does:
 
-| Lecture example | This assignment |
+| Step | Result |
 |---|---|
-| Import schools | Import **organisation units** |
-| Check `ST_SRID` / `spatial_ref_sys` | Same on `organisation_units` |
-| `ALTER` + `UPDATE` (speed limit, time) | Add **`district`** from `parentName` |
-| Schools inside road buffer (`ST_Contains` + `ST_Transform`) | **`orgunits_in_buffer`** |
-| Overlay / join | **`orgunits_by_district_spatial`** (`ST_Contains` with HDX districts) |
-| Load table back into QGIS | Double-click PostGIS tables in DB Manager |
+| Check `ST_SRID` / `spatial_ref_sys` | Confirms `organisation_units` |
+| `ALTER` + `UPDATE` | Adds **`district`** from `parentName` |
+| Copy into app tables | `orgunits_raw` and `facilities` |
+| Near main roads (`ST_Contains` + `ST_Transform`) | **`orgunits_in_buffer`** |
+| Point in district (`ST_Contains`) | **`orgunits_by_district_spatial`** |
+| Load tables back into QGIS | Double-click PostGIS tables in DB Manager |
 
 Also copies into `orgunits_raw` / `facilities` so the **web app** uses the same imported data.
 
