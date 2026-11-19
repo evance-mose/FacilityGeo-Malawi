@@ -36,9 +36,9 @@ CREATE TABLE IF NOT EXISTS orgunits_raw (
 CREATE INDEX IF NOT EXISTS orgunits_raw_geom_gix ON orgunits_raw USING GIST (geom);
 CREATE INDEX IF NOT EXISTS orgunits_raw_name_trgm ON orgunits_raw USING GIN (name gin_trgm_ops);
 
--- Staging: the rollout tracker CSV. All text on purpose; cleaned when
--- facilities is updated. scripts/load_tracker.py maps the CSV headers onto
--- these columns. facility_id / match_method are filled in during matching
+-- Staging: the rollout tracker, imported from QGIS as a table with no geometry.
+-- All text on purpose; cleaned when facilities is updated.
+-- facility_id / match_method are filled in during matching
 -- (database/match_tracker.sql); facility_id holds the DHIS2 UID.
 CREATE TABLE IF NOT EXISTS tracker_raw (
     row_id          SERIAL PRIMARY KEY,

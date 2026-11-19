@@ -83,6 +83,5 @@ app/        FastAPI
 database/   setup, lecture_style_orgunits, match, apply
 frontend/   map UI
 qgis/       IMPORT.md, project, styles
-scripts/    optional (not required if you import in QGIS)
 tests/      API tests
 ```
